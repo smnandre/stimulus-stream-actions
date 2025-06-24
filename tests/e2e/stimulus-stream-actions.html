@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stimulus StreamActions Demo</title>
+    <script src="https://unpkg.com/@hotwired/stimulus/dist/stimulus.umd.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .demo-section { background: white; margin: 20px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .controls { background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+        .btn { padding: 8px 16px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background: #2196F3; color: white; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-success { background: #4CAF50; color: white; }
+        .modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000; }
+        .modal.show { display: block; }
+        .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                  background: rgba(0,0,0,0.5); z-index: 999; }
+        .overlay.show { display: block; }
+        .notification { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; 
+                       color: white; font-weight: bold; transform: translateX(400px); transition: all 0.3s; z-index: 1001; }
+        .notification.show { transform: translateX(0); }
+        .notification.success { background: #4CAF50; }
+        .notification.error { background: #f44336; }
+        .cart-counter { background: #ff5722; color: white; border-radius: 50%; padding: 2px 8px; font-size: 12px; }
+        .product-card { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 6px; }
+        .log { background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; max-height: 200px; overflow-y: auto; 
+              font-family: monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Stimulus StreamActions Demo</h1>
+        
+        <!-- Manual Trigger Controls -->
+        <div class="demo-section">
+            <h2>Manual Stream Action Triggers</h2>
+            <div class="controls">
+                <button class="btn btn-primary" onclick="window.triggerAction('open_modal', {'modal-id': 'demo-modal'})">Open Modal</button>
+                <button class="btn btn-danger" onclick="window.triggerAction('close_modal', {targets: '#demo-modal'})">Close Modal</button>
+                <button class="btn btn-success" onclick="window.triggerAction('add_to_cart', {'product-id': '123', name: 'Demo Product'})">Add to Cart</button>
+                <button class="btn btn-primary" onclick="window.triggerAction('show_notification', {message: 'Hello World!', type: 'success'})">Show Notification</button>
+                <button class="btn btn-danger" onclick="window.triggerAction('update_status', {status: 'error', message: 'Something went wrong'})">Update Status</button>
+            </div>
+            <div class="log" id="action-log"></div>
+        </div>
+
+        <!-- Modal Controller Demo -->
+        <div class="demo-section" data-controller="modal">
+            <h2>Modal Controller</h2>
+            <p>Handles: open_modal, close_modal</p>
+            <button class="btn btn-primary" onclick="window.triggerAction('open_modal', {'modal-id': 'demo-modal'})">Test Modal</button>
+        </div>
+
+        <!-- Cart Controller Demo -->
+        <div class="demo-section" data-controller="cart">
+            <h2>Cart Controller <span class="cart-counter" data-cart-target="counter">0</span></h2>
+            <p>Handles: add_to_cart, remove_from_cart</p>
+            <div class="product-card">
+                <h4>Sample Product</h4>
+                <button class="btn btn-success" onclick="window.triggerAction('add_to_cart', {'product-id': '123', name: 'Sample Product'})">Add to Cart</button>
+                <button class="btn btn-danger" onclick="window.triggerAction('remove_from_cart', {'product-id': '123'})">Remove</button>
+            </div>
+            <div data-cart-target="items"></div>
+        </div>
+
+        <!-- Notification Controller Demo -->
+        <div class="demo-section" data-controller="notification">
+            <h2>Notification Controller</h2>
+            <p>Handles: show_notification</p>
+            <button class="btn btn-success" onclick="window.triggerAction('show_notification', {message: 'Success!', type: 'success'})">Success</button>
+            <button class="btn btn-danger" onclick="window.triggerAction('show_notification', {message: 'Error!', type: 'error'})">Error</button>
+        </div>
+
+        <!-- Status Controller Demo -->
+        <div class="demo-section" data-controller="status">
+            <h2>Status Controller</h2>
+            <p>Handles: update_status</p>
+            <div data-status-target="display">Ready</div>
+            <button class="btn btn-primary" onclick="window.triggerAction('update_status', {status: 'loading', message: 'Processing...'})">Loading</button>
+            <button class="btn btn-success" onclick="window.triggerAction('update_status', {status: 'success', message: 'Completed!'})">Success</button>
+        </div>
+    </div>
+
+    <!-- Modal HTML -->
+    <div class="overlay" id="modal-overlay"></div>
+    <div class="modal" id="demo-modal">
+        <h3>Demo Modal</h3>
+        <p>This modal was opened via stream action!</p>
+        <button class="btn btn-danger" onclick="window.triggerAction('close_modal', {targets: '#demo-modal'})">Close</button>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notification-container"></div>
+
+    <script type="module">
+        // Import the library functions
+        import { useStreamActions } from '../../dist/stimulus-stream-actions.es.js';
+        
+        // Make it available globally for the demo
+        window.useStreamActions = useStreamActions;
+        
+        // Stimulus Controllers
+        const application = Stimulus.Application.start();
+
+        // Modal Controller
+        application.register("modal", class extends Stimulus.Controller {
+            static streamActions = {
+                'open_modal': 'openModal',
+                'close_modal': 'closeModal'
+            };
+
+            initialize() {
+                useStreamActions(this);
+            }
+
+            openModal(streamData) {
+                const modalId = streamData.get('modal-id');
+                const modal = document.getElementById(modalId);
+                const overlay = document.getElementById('modal-overlay');
+                
+                modal?.classList.add('show');
+                overlay?.classList.add('show');
+                
+                this.log(`Opened modal: ${modalId}`);
+            }
+
+            closeModal(streamData) {
+                const targets = streamData.get('targets');
+                const overlay = document.getElementById('modal-overlay');
+                
+                if (targets) {
+                    document.querySelectorAll(targets).forEach(modal => {
+                        modal.classList.remove('show');
+                    });
+                } else {
+                    document.querySelectorAll('.modal.show').forEach(modal => {
+                        modal.classList.remove('show');
+                    });
+                }
+                
+                overlay?.classList.remove('show');
+                this.log(`Closed modal(s): ${targets || 'all'}`);
+            }
+
+            log(message) {
+                const log = document.getElementById('action-log');
+                log.innerHTML += `[Modal] ${message}\n`;
+                log.scrollTop = log.scrollHeight;
+            }
+        });
+
+        // Cart Controller
+        application.register("cart", class extends Stimulus.Controller {
+            static targets = ['counter', 'items'];
+            static streamActions = {
+                'add_to_cart': 'addToCart',
+                'remove_from_cart': 'removeFromCart'
+            };
+
+            initialize() {
+                useStreamActions(this);
+                this.cartItems = [];
+            }
+
+            addToCart(streamData) {
+                const productId = streamData.get('product-id');
+                const name = streamData.get('name');
+                
+                this.cartItems.push({ id: productId, name });
+                this.updateDisplay();
+                this.log(`Added to cart: ${name} (${productId})`);
+            }
+
+            removeFromCart(streamData) {
+                const productId = streamData.get('product-id');
+                this.cartItems = this.cartItems.filter(item => item.id !== productId);
+                this.updateDisplay();
+                this.log(`Removed from cart: ${productId}`);
+            }
+
+            updateDisplay() {
+                this.counterTarget.textContent = this.cartItems.length;
+                this.itemsTarget.innerHTML = this.cartItems.map(item => 
+                    `<div>• ${item.name}</div>`
+                ).join('');
+            }
+
+            log(message) {
+                const log = document.getElementById('action-log');
+                log.innerHTML += `[Cart] ${message}\n`;
+                log.scrollTop = log.scrollHeight;
+            }
+        });
+
+        // Notification Controller
+        application.register("notification", class extends Stimulus.Controller {
+            static streamActions = {
+                'show_notification': 'showNotification'
+            };
+
+            initialize() {
+                useStreamActions(this);
+            }
+
+            showNotification(streamData) {
+                const message = streamData.get('message');
+                const type = streamData.get('type', 'success');
+                
+                const notification = document.createElement('div');
+                notification.className = `notification ${type}`;
+                notification.textContent = message;
+                
+                const container = document.getElementById('notification-container');
+                container.appendChild(notification);
+                
+                setTimeout(() => notification.classList.add('show'), 100);
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    setTimeout(() => container.removeChild(notification), 300);
+                }, 3000);
+                
+                this.log(`Showed notification: ${message} (${type})`);
+            }
+
+            log(message) {
+                const log = document.getElementById('action-log');
+                log.innerHTML += `[Notification] ${message}\n`;
+                log.scrollTop = log.scrollHeight;
+            }
+        });
+
+        // Status Controller
+        application.register("status", class extends Stimulus.Controller {
+            static targets = ['display'];
+            static streamActions = {
+                'update_status': 'updateStatus'
+            };
+
+            initialize() {
+                useStreamActions(this);
+            }
+
+            updateStatus(streamData) {
+                const status = streamData.get('status');
+                const message = streamData.get('message');
+                
+                this.displayTarget.textContent = message;
+                this.displayTarget.className = `status-${status}`;
+                
+                this.log(`Status updated: ${status} - ${message}`);
+            }
+
+            log(message) {
+                const log = document.getElementById('action-log');
+                log.innerHTML += `[Status] ${message}\n`;
+                log.scrollTop = log.scrollHeight;
+            }
+        });
+
+        // Manual trigger function
+        window.triggerAction = function triggerAction(action, attributes = {}) {
+            const template = document.createElement('template');
+            const streamElement = document.createElement('turbo-stream');
+            streamElement.setAttribute('action', action);
+            
+            Object.entries(attributes).forEach(([key, value]) => {
+                streamElement.setAttribute(key, value);
+            });
+            
+            template.appendChild(streamElement);
+            
+            const event = new CustomEvent('turbo:before-stream-render', {
+                detail: {
+                    action: action,
+                    render: {
+                        target: null,
+                        getAttribute: (name) => streamElement.getAttribute(name),
+                        innerHTML: template.innerHTML
+                    }
+                },
+                cancelable: true
+            });
+            
+            document.dispatchEvent(event);
+        }
+    </script>
+</body>
+</html>
