@@ -1,33 +1,66 @@
 # Stimulus Stream Actions
 
-> [!TIP]
-> Stop polluting the global `StreamActions` object! Stimulus StreamActions lets you handle custom Turbo Stream actions in a clean, controller-scoped way with automatic cleanup.
+A modern, type-safe way to handle custom Turbo Stream actions directly in your Stimulus controllers. Enjoy clean, controller-scoped logic, automatic lifecycle management, and seamless integration with Turbo and Stimulus.
 
-## The Problem with Global Stream Actions
+## Features
+- ✨ **Controller-scoped stream actions**: Register actions directly on your Stimulus controllers
+- 🧹 **Automatic cleanup**: Actions are managed with the controller lifecycle
+- 🧑‍💻 **TypeScript support**: Benefit from full typings for actions and handler signatures
+- 🧩 **Flexible configuration**: Configure per-action options and register actions dynamically
+- 🧪 **Easy testing**: Test controllers in isolation without global state
+- 🚀 **Works with plain Stimulus**: No decorators or build steps required
+
+## Minimal Example
+
+```js
+import { Controller } from '@hotwired/stimulus';
+import { useStreamActions } from '@smnandre/stimulus-stream-actions';
+
+export default class CartController extends Controller {
+  static streamActions = {
+    'add_to_cart': 'addToCart',
+    'remove_from_cart': 'removeFromCart'
+  };
+
+  initialize() {
+    useStreamActions(this);
+  }
+
+  addToCart({ render }) {
+    const productId = render.getAttribute('product-id');
+    // ...add to cart logic...
+  }
+
+  removeFromCart({ render }) {
+    const productId = render.getAttribute('product-id');
+    // ...remove from cart logic...
+  }
+}
+```
+
+---
+
+## Why Not Global StreamActions?
 
 Custom Turbo Stream actions typically require **global registration**, creating pollution and maintenance headaches:
 
-```javascript
+```js
 import { StreamActions } from "@hotwired/turbo";
-
-// Global pollution - affects entire application
 StreamActions.closeModal = function() { /* ... */ }
 StreamActions.updateCart = function() { /* ... */ }
-StreamActions.showNotification = function() { /* ... */ }
 ```
 
 **Problems:**
-- **Global namespace pollution** - All actions share the same space
-- **No automatic cleanup** - Actions persist even when controllers disconnect
-- **Testing difficulties** - Hard to mock and isolate individual actions
-- **No scoping** - Actions can't be controller-specific
+- Global namespace pollution
+- No automatic cleanup
+- Hard to test in isolation
+- No controller scoping
 
 ## The Solution: Controller-Scoped Actions
 
 Scope stream actions directly to your Stimulus controllers with automatic lifecycle management:
 
-```javascript
-// Clean, scoped, automatically managed
+```js
 static streamActions = {
   'close_modal': 'closeModal',
   'update_cart': 'updateCart',
@@ -37,48 +70,33 @@ static streamActions = {
 
 ## Why This Approach is Better
 
-### 🎯 **Real-World Example: E-commerce Cart**
+### Key Benefits
+- **No Global Pollution**: Actions are scoped to specific controllers
+- **Auto Cleanup**: Actions automatically removed when controller disconnects
+- **Better Testing**: Each controller can be tested in isolation
+- **Type Safety**: Full TypeScript support with proper typing
+- **Zero Build**: No decorators or extra tooling required
+- **Controller Context**: Access to `this.element`, targets, values, etc.
 
-**Before (Global):**
-```javascript
-// Somewhere in your app
-StreamActions.updateCartCount = function(event) {
-  // Which cart? Which controller? Global state confusion.
-  document.querySelector('#cart-count').textContent = event.target.getAttribute('count');
+## Handler Signature and Parameters
+
+Every stream action handler receives a single object argument:
+
+```js
+handler({ target, event, render }) {
+  // target: The Turbo Stream target element (if any)
+  // event: The original CustomEvent (turbo:before-stream-render)
+  // render: The <turbo-stream> element itself
 }
 ```
+- **target**: The element targeted by the Turbo Stream (may be null)
+- **event**: The original CustomEvent for advanced use (e.g., calling `preventDefault()` manually)
+- **render**: The `<turbo-stream>` element. Use `render.getAttribute('attr')` to access attributes, and `render.innerHTML` for content.
 
-**After (Controller-Scoped):**
-```javascript
-export default class CartController extends Controller {
-  static streamActions = {
-    'update_cart_count': 'updateCount',
-    'highlight_cart': 'highlightCart'
-  };
-
-  updateCount(streamData) {
-    // Scoped to THIS cart controller instance
-    const count = streamData.get('count');
-    this.element.querySelector('[data-cart-count]').textContent = count;
-  }
-
-  highlightCart(streamData) {
-    // Multiple cart controllers can coexist independently
-    const duration = streamData.getNumber('duration', 2000);
-    this.element.classList.add('cart-updated');
-    setTimeout(() => this.element.classList.remove('cart-updated'), duration);
-  }
-}
+You can destructure only what you need:
+```js
+closeModal({ render }) { ... }
 ```
-
-### ✨ **Key Benefits**
-
-- **No Global Pollution** - Actions are scoped to specific controllers
-- **Auto Cleanup** - Actions automatically removed when controller disconnects
-- **Better Testing** - Each controller can be tested in isolation
-- **Type Safety** - Full TypeScript support with proper typing
-- **Zero Build** - No decorators or extra tooling required
-- **Controller Context** - Access to `this.element`, targets, values, etc.
 
 ## Installation
 
@@ -109,10 +127,9 @@ export default class NotificationController extends Controller {
     useStreamActions(this);
   }
 
-  showNotification(streamData) {
-    const message = streamData.get('message');
-    const type = streamData.get('type', 'info'); // with fallback
-    
+  showNotification({ render }) {
+    const message = render.getAttribute('message');
+    const type = render.getAttribute('type') || 'info';
     // Use controller context - this.element, this.targets, etc.
     const notification = this.element.querySelector('[data-notification-template]').cloneNode(true);
     notification.textContent = message;
@@ -120,8 +137,7 @@ export default class NotificationController extends Controller {
     this.element.appendChild(notification);
   }
 
-  hideAll(streamData) {
-    // Work with multiple elements using controller's element as scope
+  hideAll() {
     this.element.querySelectorAll('.notification').forEach(notification => {
       notification.remove();
     });
@@ -146,24 +162,25 @@ export default class NotificationController extends Controller {
 
 ## Advanced Configuration
 
-Add complete controller context and configuration options:
+You can use advanced configuration for each action:
 
 ```javascript
-import { Controller } from '@hotwired/stimulus';
-import { useStreamActions } from '@smnandre/stimulus-stream-actions';
+static streamActions = {
+  'close_modal': 'closeModal',
+  'update_content': { method: 'updateContent', preventDefault: false },
+  'highlight_modal': 'highlightModal'
+};
+```
+- **method**: The controller method to call
+- **preventDefault**: If true (default), prevents the default Turbo Stream rendering. Set to false to allow both your handler and the default behavior.
 
+## Example: Modal Controller
+
+```javascript
 export default class ModalController extends Controller {
   static streamActions = {
-    // Simple string mapping
     'close_modal': 'closeModal',
-    
-    // Advanced configuration with options
-    'update_content': { 
-      method: 'updateContent', 
-      preventDefault: false // Allow both custom and default Turbo behavior
-    },
-    
-    // Another simple mapping
+    'update_content': { method: 'updateContent', preventDefault: false },
     'highlight_modal': 'highlightModal'
   };
 
@@ -171,10 +188,8 @@ export default class ModalController extends Controller {
     useStreamActions(this);
   }
 
-  closeModal(streamData) {
-    const modalId = streamData.get('modal-id');
-    
-    // Close specific modal or all modals in this controller's scope
+  closeModal({ render }) {
+    const modalId = render.getAttribute('modal-id');
     if (modalId) {
       this.element.querySelector(`#${modalId}`)?.remove();
     } else {
@@ -182,18 +197,15 @@ export default class ModalController extends Controller {
     }
   }
 
-  updateContent(streamData) {
-    const content = streamData.content;
-    // Update all content areas within this controller
+  updateContent({ render }) {
+    const content = render.innerHTML;
     this.element.querySelectorAll('[data-modal-content]').forEach(area => {
       area.innerHTML = content;
     });
   }
 
-  highlightModal(streamData) {
-    const duration = streamData.getNumber('duration', 2000);
-    
-    // Highlight all modals in this controller's scope
+  highlightModal({ render }) {
+    const duration = Number(render.getAttribute('duration')) || 2000;
     this.element.querySelectorAll('[data-modal]').forEach(modal => {
       modal.classList.add('modal--highlighted');
       setTimeout(() => modal.classList.remove('modal--highlighted'), duration);
@@ -211,35 +223,27 @@ import { Controller } from '@hotwired/stimulus';
 import { useCustomStreamActions } from '@smnandre/stimulus-stream-actions';
 
 export default class DynamicController extends Controller {
-  static values = { 
-    animated: Boolean,
-    mode: String 
-  };
+  static values = { animated: Boolean, mode: String };
 
   initialize() {
-    // Choose actions based on controller configuration
     const actions = this.animatedValue ? {
       'remove_item': 'animatedRemove',
       'add_item': 'animatedAdd'
     } : {
-      'remove_item': 'instantRemove', 
+      'remove_item': 'instantRemove',
       'add_item': 'instantAdd'
     };
-
-    // Add mode-specific actions
     if (this.modeValue === 'admin') {
       actions['bulk_delete'] = 'bulkDelete';
       actions['bulk_update'] = 'bulkUpdate';
     }
-
     useCustomStreamActions(this, actions);
   }
 
-  animatedRemove(streamData) {
-    const itemId = streamData.get('item-id');
-    const duration = streamData.getNumber('duration', 300);
+  animatedRemove({ render }) {
+    const itemId = render.getAttribute('item-id');
+    const duration = Number(render.getAttribute('duration')) || 300;
     const items = this.element.querySelectorAll(`[data-item-id="${itemId}"]`);
-    
     items.forEach(item => {
       item.style.transition = `opacity ${duration}ms ease-out`;
       item.style.opacity = '0';
@@ -247,23 +251,21 @@ export default class DynamicController extends Controller {
     });
   }
 
-  instantRemove(streamData) {
-    const itemId = streamData.get('item-id');
+  instantRemove({ render }) {
+    const itemId = render.getAttribute('item-id');
     this.element.querySelectorAll(`[data-item-id="${itemId}"]`).forEach(item => {
       item.remove();
     });
   }
 
-  bulkDelete(streamData) {
-    const selector = streamData.get('selector');
+  bulkDelete({ render }) {
+    const selector = render.getAttribute('selector');
     this.element.querySelectorAll(selector).forEach(item => item.remove());
   }
 }
 ```
 
-## Real-World Examples
-
-### Multi-Tab Interface Updates
+## Real-World Example: Multi-Tab Interface
 
 ```javascript
 export default class TabsController extends Controller {
@@ -274,39 +276,29 @@ export default class TabsController extends Controller {
     'add_notification_badge': 'addBadge'
   };
 
-  activateTab(streamData) {
-    const tabId = streamData.get('tab-id');
-    
-    // Deactivate all tabs in this controller
+  activateTab({ render }) {
+    const tabId = render.getAttribute('tab-id');
     this.tabTargets.forEach(tab => tab.classList.remove('active'));
     this.panelTargets.forEach(panel => panel.classList.remove('active'));
-    
-    // Activate specific tab
     const activeTab = this.element.querySelector(`[data-tab-id="${tabId}"]`);
     const activePanel = this.element.querySelector(`[data-panel-id="${tabId}"]`);
-    
     activeTab?.classList.add('active');
     activePanel?.classList.add('active');
   }
 
-  updateTabContent(streamData) {
-    const tabId = streamData.get('tab-id');
-    const content = streamData.content;
-    
+  updateTabContent({ render }) {
+    const tabId = render.getAttribute('tab-id');
+    const content = render.innerHTML;
     const panel = this.element.querySelector(`[data-panel-id="${tabId}"]`);
     if (panel) panel.innerHTML = content;
   }
 
-  addBadge(streamData) {
-    const tabId = streamData.get('tab-id');
-    const count = streamData.getNumber('count', 0);
-    
+  addBadge({ render }) {
+    const tabId = render.getAttribute('tab-id');
+    const count = Number(render.getAttribute('count')) || 0;
     const tab = this.element.querySelector(`[data-tab-id="${tabId}"]`);
     if (tab) {
-      // Remove existing badge
       tab.querySelectorAll('.badge').forEach(badge => badge.remove());
-      
-      // Add new badge
       const badge = document.createElement('span');
       badge.className = 'badge';
       badge.textContent = count.toString();
@@ -315,6 +307,43 @@ export default class TabsController extends Controller {
   }
 }
 ```
+
+## Handling Regular Turbo Stream Actions
+
+You can also register controller methods for base Turbo Stream actions (like `insert`, `update`, etc.) using `static streamActions`. If a controller method is registered for a base action, it will be called instead of Turbo's default behavior (unless you set `preventDefault: false`).
+
+**Example:**
+
+```js
+export default class ListController extends Controller {
+  static streamActions = {
+    insert: 'handleInsert',
+    update: 'handleUpdate'
+  };
+
+  initialize() {
+    useStreamActions(this);
+  }
+
+  handleInsert({ render }) {
+    // Use render.querySelector('template') to get the template content
+    const template = render.querySelector('template');
+    if (template) {
+      this.element.appendChild(template.content.cloneNode(true));
+    }
+  }
+
+  handleUpdate({ render }) {
+    const template = render.querySelector('template');
+    if (template) {
+      this.element.innerHTML = '';
+      this.element.appendChild(template.content.cloneNode(true));
+    }
+  }
+}
+```
+
+---
 
 ## API Reference
 
@@ -350,34 +379,33 @@ type StreamActionMap = Record<string, StreamActionConfig>;
 ### Handler Method Signature
 
 ```javascript
-handlerMethod(streamData) {
-  // streamData: Enhanced object with easy attribute access
-  
-  // Easy attribute access
-  const value = streamData.get('custom-attribute');
-  const withFallback = streamData.get('optional-attr', 'default');
-  
-  // Typed attribute access
-  const count = streamData.getNumber('count', 0);
-  const enabled = streamData.getBoolean('enabled');
-  const config = streamData.getJSON('config', {});
-  
-  // Access stream content and target
-  const content = streamData.content;
-  const target = streamData.target;
-  
-  // All attributes as object
-  const allAttrs = streamData.attributes;
-  
-  // Original event if needed
-  const originalEvent = streamData.event;
-  
+handler({ target, event, render }) {
+  // target: The Turbo Stream target element (if any)
+  // event: The original CustomEvent (turbo:before-stream-render)
+  // render: The <turbo-stream> element
+  // Example:
+  const value = render.getAttribute('custom-attribute');
+  const content = render.innerHTML;
   // Use controller context
   this.element.querySelector('...');
   this.targets;
   this.values;
 }
 ```
+
+### Preventing Default Turbo Stream Behavior
+
+By default, your handler will prevent the default Turbo Stream rendering. To allow both your handler and the default behavior, set `preventDefault: false` in your action config:
+
+```js
+static streamActions = {
+  'update_content': { method: 'updateContent', preventDefault: false }
+};
+```
+
+### Error Handling
+
+If an error is thrown in your handler, it will be logged to the console in development mode for easier debugging.
 
 ## How It Works
 
@@ -413,8 +441,9 @@ export default class MyController extends Controller {
     useStreamActions(this);
   }
 
-  handleMyAction(target: Element | null, event: CustomEvent): void {
+  handleMyAction({ target, event, render }: { target: Element | null, event: CustomEvent, render: Element }) {
     // Fully typed method
+    // ...
   }
 }
 ```

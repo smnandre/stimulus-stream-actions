@@ -1,14 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useStreamActions, useCustomStreamActions } from '../src/stimulus-stream-actions';
+import { useStreamActions, useCustomStreamActions, StreamActionRegistry } from '../src/stimulus-stream-actions';
+import { Controller } from '@hotwired/stimulus';
 
-// Set up environment for development warnings
-vi.stubEnv('NODE_ENV', 'development');
-
-class MockController {
+class MockController extends Controller {
   static streamActions: Record<string, any> = {};
-  element: HTMLElement;
   connected = false;
-  
+
   onTestAction = vi.fn();
   onAnotherAction = vi.fn();
   onPreventDefaultAction = vi.fn();
@@ -16,9 +13,8 @@ class MockController {
   onCustomAction = vi.fn();
   onDynamicAction = vi.fn();
 
-  constructor() {
-    this.element = document.createElement('div');
-    document.body.appendChild(this.element);
+  constructor(element: HTMLElement) {
+    super({ scope: { element } } as any);
   }
 
   connect(): void {
@@ -36,11 +32,15 @@ class MockController {
 
 describe('Stimulus Stream Actions', () => {
   let controller: MockController;
+  let element: HTMLElement;
   let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    controller = new MockController();
+    vi.stubEnv('NODE_ENV', 'development');
+    element = document.createElement('div');
+    document.body.appendChild(element);
+    controller = new MockController(element);
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -49,12 +49,7 @@ describe('Stimulus Stream Actions', () => {
     controller.cleanup();
     vi.resetAllMocks();
     document.body.innerHTML = '';
-    
-    // Clean up any event listeners
-    const events = ['turbo:before-stream-render'];
-    events.forEach(event => {
-      document.removeEventListener(event, () => {});
-    });
+    StreamActionRegistry.resetInstance();
   });
 
   describe('useStreamActions', () => {
@@ -66,14 +61,12 @@ describe('Stimulus Stream Actions', () => {
       useStreamActions(controller);
       controller.connect();
 
-      // Simulate turbo stream event
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
+
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'test_action',
-          render: {
-            target: null,
-            getAttribute: vi.fn()
-          }
+          newStream: streamElement,
         },
         cancelable: true
       });
@@ -81,6 +74,9 @@ describe('Stimulus Stream Actions', () => {
       document.dispatchEvent(event);
 
       expect(controller.onTestAction).toHaveBeenCalledTimes(1);
+      const handlerArg = controller.onTestAction.mock.calls[0][0];
+      expect(handlerArg).toHaveProperty('streamElement');
+      expect(handlerArg.streamElement).toBe(streamElement);
       expect(event.defaultPrevented).toBe(true);
     });
 
@@ -93,21 +89,21 @@ describe('Stimulus Stream Actions', () => {
       useStreamActions(controller);
       controller.connect();
 
-      // Test first action
+      const streamElement1 = document.createElement('div');
+      streamElement1.setAttribute('action', 'test_action');
       const event1 = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'test_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement1,
         },
         cancelable: true
       });
       document.dispatchEvent(event1);
 
-      // Test second action
+      const streamElement2 = document.createElement('div');
+      streamElement2.setAttribute('action', 'another_action');
       const event2 = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'another_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement2,
         },
         cancelable: true
       });
@@ -126,21 +122,21 @@ describe('Stimulus Stream Actions', () => {
       useStreamActions(controller);
       controller.connect();
 
-      // Test preventDefault: true
+      const streamElement1 = document.createElement('div');
+      streamElement1.setAttribute('action', 'prevent_action');
       const event1 = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'prevent_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement1,
         },
         cancelable: true
       });
       document.dispatchEvent(event1);
 
-      // Test preventDefault: false
+      const streamElement2 = document.createElement('div');
+      streamElement2.setAttribute('action', 'allow_action');
       const event2 = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'allow_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement2,
         },
         cancelable: true
       });
@@ -161,13 +157,11 @@ describe('Stimulus Stream Actions', () => {
       controller.connect();
       controller.disconnect();
 
-      // Remove from DOM to simulate disconnection
-      controller.element.remove();
-
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'test_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement,
         },
         cancelable: true
       });
@@ -178,9 +172,7 @@ describe('Stimulus Stream Actions', () => {
 
     it('should warn when called without streamActions', () => {
       delete (MockController as any).streamActions;
-      
       useStreamActions(controller);
-      
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'useStreamActions called on controller without static streamActions property:',
         controller
@@ -214,17 +206,18 @@ describe('Stimulus Stream Actions', () => {
       useStreamActions(controller);
       controller.connect();
 
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'nonexistent_action');
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'nonexistent_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement,
         },
         cancelable: true
       });
       document.dispatchEvent(event);
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        "Stream action method 'nonExistentMethod' not found on controller",
+        'Stream action \"nonexistent_action\" references undefined method \"nonExistentMethod\" on controller',
         controller
       );
     });
@@ -233,7 +226,7 @@ describe('Stimulus Stream Actions', () => {
       const errorMethod = vi.fn().mockImplementation(() => {
         throw new Error('Test error');
       });
-      
+
       MockController.streamActions = {
         'error_action': 'errorMethod'
       };
@@ -242,10 +235,11 @@ describe('Stimulus Stream Actions', () => {
       useStreamActions(controller);
       controller.connect();
 
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'error_action');
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'error_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement,
         },
         cancelable: true
       });
@@ -253,7 +247,7 @@ describe('Stimulus Stream Actions', () => {
 
       expect(errorMethod).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Error in stream action handler 'errorMethod':",
+        'Error in stream action \"error_action\" (errorMethod):',
         expect.any(Error)
       );
     });
@@ -268,10 +262,11 @@ describe('Stimulus Stream Actions', () => {
       useCustomStreamActions(controller, customActions);
       controller.connect();
 
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'custom_action');
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'custom_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement,
         },
         cancelable: true
       });
@@ -289,14 +284,15 @@ describe('Stimulus Stream Actions', () => {
         'test_action': 'onCustomAction'
       };
 
-      useStreamActions(controller); // First set up static actions
-      useCustomStreamActions(controller, customActions); // Then override with custom
+      useStreamActions(controller);
+      useCustomStreamActions(controller, customActions);
       controller.connect();
 
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'test_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement,
         },
         cancelable: true
       });
@@ -308,14 +304,12 @@ describe('Stimulus Stream Actions', () => {
 
     it('should warn with invalid actions parameter', () => {
       useCustomStreamActions(controller, null as any);
-      
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'useCustomStreamActions called with invalid actions:',
         null
       );
 
       useCustomStreamActions(controller, 'invalid' as any);
-      
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'useCustomStreamActions called with invalid actions:',
         'invalid'
@@ -344,22 +338,23 @@ describe('Stimulus Stream Actions', () => {
 
   describe('StreamActionRegistry', () => {
     it('should manage multiple controllers', () => {
-      const controller2 = new MockController();
-      
+      const controller2 = new MockController(document.createElement('div'));
+
       MockController.streamActions = {
         'shared_action': 'onTestAction'
       };
 
       useStreamActions(controller);
       useStreamActions(controller2);
-      
+
       controller.connect();
       controller2.connect();
 
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'shared_action');
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'shared_action',
-          render: { target: null, getAttribute: vi.fn() }
+          newStream: streamElement,
         },
         cancelable: true
       });
@@ -379,33 +374,33 @@ describe('Stimulus Stream Actions', () => {
       useStreamActions(controller);
       controller.connect();
 
-      // Event with missing action
       const event1 = new CustomEvent('turbo:before-stream-render', {
-        detail: {
-          render: { target: null, getAttribute: vi.fn() }
-        }
+        detail: {}
       });
       document.dispatchEvent(event1);
 
-      // Event with missing render
       const event2 = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'test_action'
+          newStream: null
         }
       });
       document.dispatchEvent(event2);
 
       expect(controller.onTestAction).not.toHaveBeenCalled();
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        'Invalid turbo:before-stream-render event detail:',
-        expect.any(Object)
+        'stimulus-stream-actions: turbo:before-stream-render event is missing newStream in detail.',
+        {}
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'stimulus-stream-actions: turbo:before-stream-render event is missing newStream in detail.',
+        { newStream: null }
       );
     });
 
     it('should preserve original connect/disconnect methods', () => {
       const originalConnect = vi.fn();
       const originalDisconnect = vi.fn();
-      
+
       controller.connect = originalConnect;
       controller.disconnect = originalDisconnect;
 
@@ -414,12 +409,29 @@ describe('Stimulus Stream Actions', () => {
       };
 
       useStreamActions(controller);
-      
+
       controller.connect();
       controller.disconnect();
 
       expect(originalConnect).toHaveBeenCalledTimes(1);
       expect(originalDisconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return the number of registered controllers', () => {
+      const registry = StreamActionRegistry.getInstance();
+      registry.register(controller);
+      expect(registry.getControllerCount()).toBe(1);
+      registry.unregister(controller);
+      expect(registry.getControllerCount()).toBe(0);
+    });
+
+    it('should indicate if it is listening for events', () => {
+      const registry = StreamActionRegistry.getInstance();
+      expect(registry.isListeningForEvents()).toBe(false);
+      registry.register(controller);
+      expect(registry.isListeningForEvents()).toBe(true);
+      registry.unregister(controller);
+      expect(registry.isListeningForEvents()).toBe(false);
     });
   });
 
@@ -432,18 +444,15 @@ describe('Stimulus Stream Actions', () => {
       useStreamActions(controller);
       controller.connect();
 
-      const mockGetAttribute = vi.fn()
-        .mockReturnValueOnce('modal-123')
-        .mockReturnValueOnce('large');
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
+      streamElement.setAttribute('modal-id', 'modal-123');
+      streamElement.setAttribute('size', 'large');
+      streamElement.innerHTML = '<div>test content</div>';
 
       const event = new CustomEvent('turbo:before-stream-render', {
         detail: {
-          action: 'test_action',
-          render: {
-            target: document.body,
-            getAttribute: mockGetAttribute,
-            innerHTML: '<div>test content</div>'
-          }
+          newStream: streamElement,
         },
         cancelable: true
       });
@@ -452,14 +461,57 @@ describe('Stimulus Stream Actions', () => {
 
       expect(controller.onTestAction).toHaveBeenCalledTimes(1);
       const streamData = controller.onTestAction.mock.calls[0][0];
-      expect(streamData.target).toBe(document.body);
-      expect(streamData.event).toBe(event);
-      expect(typeof streamData.get).toBe('function');
-      expect(typeof streamData.getBoolean).toBe('function');
-      expect(typeof streamData.getNumber).toBe('function');
-      expect(typeof streamData.getJSON).toBe('function');
-      expect(streamData.content).toBe('<div>test content</div>');
-      expect(typeof streamData.attributes).toBe('object');
+      expect(streamData.streamElement).toBe(streamElement);
+    });
+  });
+
+  describe('Coverage', () => {
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', 'production');
+    });
+
+    it('should not warn in production for useStreamActions', () => {
+      delete (controller.constructor as any).streamActions;
+      useStreamActions(controller);
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+    });
+
+    it('should not warn in production for useCustomStreamActions with invalid actions', () => {
+      useCustomStreamActions(controller, null as any);
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+    });
+
+    it('should not warn in production for useCustomStreamActions with invalid config', () => {
+      const invalidActions = {
+        'invalid_action': 123,
+      };
+      useCustomStreamActions(controller, invalidActions);
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Coverage for controllers without lifecycle methods', () => {
+    class ControllerWithoutLifecycleCallbacks extends Controller {
+      static streamActions = { 'test': 'test' };
+      constructor(element: HTMLElement) {
+        super({ scope: { element } } as any);
+      }
+
+      connect = undefined;
+      disconnect = undefined;
+
+      test() {}
+    }
+
+    it('should handle controllers without connect/disconnect methods', () => {
+      const element = document.createElement('div');
+      const controller = new ControllerWithoutLifecycleCallbacks(element);
+
+      expect(() => useStreamActions(controller)).not.toThrow();
+
+      expect(() => controller.connect?.()).not.toThrow();
+      expect(() => controller.disconnect?.()).not.toThrow();
     });
   });
 });
+

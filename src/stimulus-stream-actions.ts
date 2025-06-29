@@ -40,9 +40,9 @@ type StreamActionMap = Record<string, StreamActionConfig>;
  * adding it when the first controller is registered and removing it when
  * the last controller is unregistered.
  */
-class StreamActionRegistry {
+export class StreamActionRegistry {
   private static instance: StreamActionRegistry;
-  private controllers = new Set<Controller>();
+  private controllers = new Set<Controller<Element>>();
   private isListening = false;
 
   /**
@@ -59,6 +59,14 @@ class StreamActionRegistry {
   }
 
   /**
+   * Resets the singleton instance.
+   * ONLY FOR TESTING PURPOSES.
+   */
+  static resetInstance() {
+    StreamActionRegistry.instance = new StreamActionRegistry();
+  }
+
+  /**
    * Handles the turbo:before-stream-render event.
    * Finds all controllers that can handle the action and calls their methods.
    * 
@@ -67,21 +75,26 @@ class StreamActionRegistry {
    */
   private handleStreamRender = (event: Event) => {
     const customEvent = event as CustomEvent;
-    const { action, render } = customEvent.detail;
-    
-    // Validate event structure
-    if (!action || !render) {
+    // In Turbo 8, the stream element is in `newStream`.
+    const streamElement = customEvent.detail.newStream as HTMLElement | undefined;
+
+    if (!streamElement) {
       if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-        console.warn('Invalid turbo:before-stream-render event detail:', customEvent.detail);
+        console.warn('stimulus-stream-actions: turbo:before-stream-render event is missing newStream in detail.', customEvent.detail);
       }
+      return;
+    }
+
+    const action = streamElement.getAttribute('action');
+    if (!action) {
       return;
     }
     
     // Find controllers that handle this action
     for (const controller of this.controllers) {
-      const ctor = controller.constructor as any;
+      const ctor = controller.constructor as { streamActions?: StreamActionMap };
       const staticActions: StreamActionMap = ctor.streamActions || {};
-      const customActions: StreamActionMap = (controller as any)._customStreamActions || {};
+      const customActions: StreamActionMap = (controller as {_customStreamActions?: StreamActionMap})._customStreamActions || {};
       
       // Custom actions take precedence over static actions
       const actions = { ...staticActions, ...customActions };
@@ -99,75 +112,29 @@ class StreamActionRegistry {
         }
 
         if (preventDefault) {
-          event.preventDefault();
+          customEvent.preventDefault();
         }
 
-        const handler = (controller as any)[methodName];
-        if (handler && typeof handler === 'function' && controller.element.isConnected) {
-          try {
-            // Create a better DX object for accessing stream data
-            const streamData = {
-              target: render.target,
-              event: customEvent,
-              // Easy attribute access
-              get(attributeName: string, fallback?: string): string | null {
-                const value = render.getAttribute(attributeName);
-                return value !== null ? value : (fallback ?? null);
-              },
-              // Get all attributes as an object
-              get attributes(): Record<string, string> {
-                const attrs: Record<string, string> = {};
-                if (render.attributes && render.attributes.length) {
-                  for (let i = 0; i < render.attributes.length; i++) {
-                    const attr = render.attributes[i];
-                    attrs[attr.name] = attr.value;
-                  }
-                }
-                return attrs;
-              },
-              // Get content from the stream
-              get content(): string {
-                return render.innerHTML || '';
-              },
-              // Get boolean attribute
-              getBoolean(attributeName: string): boolean {
-                const value = render.getAttribute(attributeName);
-                return value !== null && value !== 'false' && value !== '0';
-              },
-              // Get number attribute
-              getNumber(attributeName: string, fallback = 0): number {
-                const value = render.getAttribute(attributeName);
-                const parsed = value ? parseFloat(value) : NaN;
-                return isNaN(parsed) ? fallback : parsed;
-              },
-              // Get JSON attribute
-              getJSON<T = any>(attributeName: string, fallback: T | null = null): T | null {
-                const value = render.getAttribute(attributeName);
-                if (!value) return fallback;
-                try {
-                  return JSON.parse(value);
-                } catch {
-                  return fallback;
-                }
-              }
-            };
+        const method = (controller as unknown as Record<string, unknown>)[methodName];
 
-            handler.call(controller, streamData);
+        if (typeof method === 'function') {
+          try {
+            // Pass streamElement as `render` for backward-compatibility.
+            // Also pass as `streamElement` for clarity.
+            method.call(controller, { ...customEvent.detail, action, render: streamElement, streamElement });
           } catch (error) {
             if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-              console.error(`Error in stream action handler '${methodName}':`, error);
+              console.error(`Error in stream action \"${action}\" (${methodName}):`, error);
             }
           }
-        } else if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-          if (!handler) {
-            console.warn(`Stream action method '${methodName}' not found on controller`, controller);
-          } else if (typeof handler !== 'function') {
-            console.warn(`Stream action '${methodName}' is not a function on controller`, controller);
+        } else {
+          if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
+            console.warn(`Stream action \"${action}\" references undefined method \"${methodName}\" on controller`, controller);
           }
         }
       }
     }
-  };
+  }
 
   /**
    * Registers a controller with the registry.
@@ -176,7 +143,7 @@ class StreamActionRegistry {
    * 
    * @param controller - The Stimulus controller to register
    */
-  register(controller: Controller) {
+  register(controller: Controller<Element>) {
     this.controllers.add(controller);
     
     if (!this.isListening) {
@@ -192,7 +159,7 @@ class StreamActionRegistry {
    * 
    * @param controller - The Stimulus controller to unregister
    */
-  unregister(controller: Controller) {
+  unregister(controller: Controller<Element>) {
     this.controllers.delete(controller);
     
     if (this.controllers.size === 0 && this.isListening) {
@@ -238,7 +205,7 @@ function wireStreamActions(controller: Controller, customActions?: StreamActionM
 
   // Store custom actions on the controller if provided
   if (customActions) {
-    (controller as any)._customStreamActions = customActions;
+    (controller as {_customStreamActions?: StreamActionMap})._customStreamActions = customActions;
   }
 
   controller.connect = function () {
@@ -284,7 +251,7 @@ function wireStreamActions(controller: Controller, customActions?: StreamActionM
  * ```
  */
 export function useStreamActions(controller: Controller) {
-  const ctor = controller.constructor as any;
+  const ctor = controller.constructor as { streamActions?: StreamActionMap };
   const streamActions: StreamActionMap | undefined = ctor.streamActions;
   
   if (streamActions) {
