@@ -5,72 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stimulus Stream Actions Test</title>
     <script type="module" src="https://unpkg.com/@hotwired/turbo@8.0.13/dist/turbo.es2017-esm.js"></script>
-    <script type="module" src="/dist/stimulus-stream-actions.es.js"></script>
     <script type="module">
-      import {Application, Controller} from "https://esm.sh/@hotwired/stimulus";
-      import {useStreamActions} from '/dist/stimulus-stream-actions.es.js';
+      import { Application, Controller } from "https://esm.sh/@hotwired/stimulus";
+      import { useStreamActions } from '/dist/stimulus-stream-actions.es.js';
 
       window.Stimulus = Application;
-
       const application = new Application();
       application.start();
 
-      window.log = function(message, level = 'info') {
-        const logEntry = document.createElement('div');
-        logEntry.className = `log-entry log-${level}`;
-        logEntry.textContent = message;
-        document.getElementById('action-log').appendChild(logEntry);
+      window.log = function (message, level = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${level}`;
+        entry.textContent = message;
+        document.getElementById('action-log').appendChild(entry);
       };
 
       document.addEventListener('turbo:load', () => {
-        window.log('Turbo Ready');
         document.getElementById('turbo-check').textContent = 'Turbo Ready';
       });
 
-      document.addEventListener('stimulus:controller:connect', (event) => {
-        window.log(`Controller ${event.detail.controller.identifier} connected`);
-        if (event.detail.controller.identifier === 'foobar') {
-            document.getElementById('controller-check').textContent = 'Controller Ready';
-        }
-      });
-
-      // Debug: log when turbo-stream elements are added
-      const origAppendChild = Document.prototype.appendChild;
-      Document.prototype.appendChild = function(child) {
-        if (child && child.tagName === 'TURBO-STREAM') {
-          window.log('DEBUG: turbo-stream element appended to document', 'debug');
-          // Manually dispatch turbo:before-stream-render for E2E tests
-          const event = new CustomEvent('turbo:before-stream-render', {
-            bubbles: true,
-            cancelable: true,
-            detail: { newStream: child }
-          });
-          child.dispatchEvent(event);
-        }
-        return origAppendChild.call(this, child);
-      };
-
-      document.addEventListener('turbo:before-stream-render', (event) => {
+      document.addEventListener('turbo:before-stream-render', () => {
         window.log('Event: turbo:before-stream-render');
       });
-      document.addEventListener('turbo:before-fetch-request', (event) => {
-        window.log('Event: turbo:before-fetch-request');
-      });
-      document.addEventListener('turbo:before-fetch-response', (event) => {
-        window.log('Event: turbo:before-fetch-response');
-      });
-      document.addEventListener('turbo:frame-load', (event) => {
-        window.log('Event: turbo:frame-load');
-      });
 
-      window.addEventListener('error', function(event) {
+      window.addEventListener('error', (event) => {
         window.log('JS Error: ' + event.message, 'error');
       });
 
+      function templateContent(streamElement) {
+        const template = streamElement.querySelector('template');
+        return template ? template.content.cloneNode(true) : null;
+      }
+
       application.register("foobar", class extends Controller {
-        static streamActions = {
-          'test_action': 'handleTestAction'
-        };
+        static streamActions = { 'test_action': 'handleTestAction' };
 
         initialize() {
           useStreamActions(this);
@@ -78,13 +46,11 @@
         }
 
         connect() {
-          window.log('Test controller connected');
           document.getElementById('controller-check').textContent = 'Controller Ready';
         }
 
-        handleTestAction({render}) {
-          window.log("SUCCESS: handleTestAction called");
-          const payload = render.getAttribute('payload') || 'none';
+        handleTestAction({ streamElement }) {
+          const payload = streamElement.getAttribute('payload') || 'none';
           window.log(`SUCCESS: handleTestAction called with payload: ${payload}`, 'success');
         }
       });
@@ -104,112 +70,58 @@
           useStreamActions(this);
         }
 
-        connect() {
-          window.log('Turbo actions controller connected');
+        handleAppend({ target, streamElement }) {
+          window.log('Custom append called');
+          const content = templateContent(streamElement);
+          if (target && content) target.append(content);
         }
 
-        handleAppend({target, render}) {
-          window.log('Custom append called');
-          const template = render.querySelector('template');
-          if (template) {
-            target.innerHTML += template.innerHTML;
-          } else if (render.innerHTML) {
-            target.innerHTML += render.innerHTML;
-          }
-        }
-        handlePrepend({target, render}) {
+        handlePrepend({ target, streamElement }) {
           window.log('Custom prepend called');
-          const template = render.querySelector('template');
-          if (template) {
-            target.innerHTML = template.innerHTML + target.innerHTML;
-          } else if (render.innerHTML) {
-            target.innerHTML = render.innerHTML + target.innerHTML;
-          }
+          const content = templateContent(streamElement);
+          if (target && content) target.prepend(content);
         }
-        handleReplace({target, render}) {
+
+        handleReplace({ target, streamElement }) {
           window.log('Custom replace called');
-          const template = render.querySelector('template');
-          if (template) {
-            target.outerHTML = template.innerHTML;
-          } else if (render.innerHTML) {
-            target.outerHTML = render.innerHTML;
-          }
+          const content = templateContent(streamElement);
+          if (target && content) target.replaceWith(content);
         }
-        handleUpdate({target, render}) {
+
+        handleUpdate({ target, streamElement }) {
           window.log('Custom update called');
-          const template = render.querySelector('template');
-          if (template) {
-            target.innerHTML = template.innerHTML;
-          } else if (render.innerHTML) {
-            target.innerHTML = render.innerHTML;
-          }
+          const content = templateContent(streamElement);
+          if (target && content) target.replaceChildren(content);
         }
-        handleRemove({target}) {
+
+        handleRemove({ target }) {
           window.log('Custom remove called');
-          target.remove();
+          target?.remove();
         }
-        handleBefore({target, render}) {
+
+        handleBefore({ target, streamElement }) {
           window.log('Custom before called');
-          const template = render.querySelector('template');
-          if (template) {
-            target.insertAdjacentHTML('beforebegin', template.innerHTML);
-          } else if (render.innerHTML) {
-            target.insertAdjacentHTML('beforebegin', render.innerHTML);
-          }
+          const content = templateContent(streamElement);
+          if (target && content) target.before(content);
         }
-        handleAfter({target, render}) {
+
+        handleAfter({ target, streamElement }) {
           window.log('Custom after called');
-          const template = render.querySelector('template');
-          if (template) {
-            target.insertAdjacentHTML('afterend', template.innerHTML);
-          } else if (render.innerHTML) {
-            target.insertAdjacentHTML('afterend', render.innerHTML);
-          }
+          const content = templateContent(streamElement);
+          if (target && content) target.after(content);
         }
       });
 
+      // Hand the stream to real Turbo, which dispatches turbo:before-stream-render.
+      // The library's listener then routes it to the controller method.
       window.triggerTestAction = function (payload = 'test_payload') {
-        window.log(`Injecting turbo-stream with action="test_action" payload="${payload}"`);
-        const stream = document.createElement('turbo-stream');
-        stream.setAttribute('action', 'test_action');
-        stream.setAttribute('payload', payload);
-        stream.setAttribute('target', 'foobar');
-        const template = document.createElement('template');
-        template.innerHTML = `<div>Test content with payload: ${payload}</div>`;
-        stream.appendChild(template);
-        document.body.appendChild(stream);
-        window.log(stream.outerHTML);
+        const stream = `<turbo-stream action="test_action" payload="${payload}" target="foobar"><template></template></turbo-stream>`;
+        window.Turbo.renderStreamMessage(stream);
       };
 
-      // Helper for E2E: inject and process a turbo-stream using Turbo's internal API
-      window.injectTurboStream = function({action, target, html}) {
-        window.log(`Injecting turbo-stream with action="${action}" target="${target}"`);
-        const stream = document.createElement('turbo-stream');
-        stream.setAttribute('action', action);
-        stream.setAttribute('target', target);
-        const template = document.createElement('template');
-        template.innerHTML = html || '';
-        stream.appendChild(template);
-        
-        try {
-          // Use Turbo's internal API to process the stream
-          if (window.Turbo && typeof window.Turbo.renderStreamMessage === 'function') {
-            window.log('Using Turbo.renderStreamMessage API');
-            window.Turbo.renderStreamMessage(stream.outerHTML);
-          } else {
-            // Manual fallback for custom actions
-            window.log('Falling back to manual stream processing');
-            document.body.appendChild(stream);
-            
-            // For standard Turbo actions, we need to handle them manually if Turbo isn't available
-            const targetElement = document.getElementById(target);
-            if (targetElement && action === 'append' && html) {
-              targetElement.insertAdjacentHTML('beforeend', html);
-            }
-          }
-        } catch (error) {
-          window.log(`Error processing turbo-stream: ${error.message}`, 'error');
-        }
+      window.injectTurboStream = function ({ action, target, html }) {
+        const stream = `<turbo-stream action="${action}" target="${target}"><template>${html || ''}</template></turbo-stream>`;
+        window.Turbo.renderStreamMessage(stream);
       };
     </script>
 </head>

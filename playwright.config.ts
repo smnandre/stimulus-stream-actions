@@ -9,7 +9,7 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
   },
   webServer: {
-    command: `npx serve . -l ${PORT}`,
+    command: `node_modules/.bin/serve . -l ${PORT}`,
     url: `http://localhost:${PORT}/tests/e2e/stimulus-stream-actions`,
     reuseExistingServer: !process.env.CI,
     timeout: 20000, // Increased from 10000 to 20000 (20 seconds)
