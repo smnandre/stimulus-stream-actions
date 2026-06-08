@@ -83,20 +83,29 @@ static streamActions = {
 Every stream action handler receives a single object argument:
 
 ```js
-handler({ target, event, render }) {
-  // target: The Turbo Stream target element (if any)
-  // event: The original CustomEvent (turbo:before-stream-render)
-  // render: The <turbo-stream> element itself
+handler({ target, targets, streamElement, render, action }) {
+  // target:        First resolved target element, or null
+  // targets:       All resolved target elements (array)
+  // streamElement: The <turbo-stream> element that triggered the action
+  // render:        Alias of streamElement, kept for backward compatibility
+  // action:        The action name (value of the `action` attribute)
 }
 ```
-- **target**: The element targeted by the Turbo Stream (may be null)
-- **event**: The original CustomEvent for advanced use (e.g., calling `preventDefault()` manually)
-- **render**: The `<turbo-stream>` element. Use `render.getAttribute('attr')` to access attributes, and `render.innerHTML` for content.
+- **target**: The element resolved from the stream's `target="id"` attribute (via `getElementById`), or the first match when the stream uses `targets="selector"`. `null` when neither attribute is set or nothing matches.
+- **targets**: All resolved target elements as an array — one element for `target="id"`, many for `targets="selector"`, empty when neither is set.
+- **streamElement**: The `<turbo-stream>` element. Use `streamElement.getAttribute('attr')` to read attributes, `streamElement.innerHTML` for content, and `streamElement.querySelector('template')` for the template.
+- **render**: The same element as `streamElement`. Kept so handlers that destructure `render` keep working.
+- **action**: The action name that matched this handler.
+- **newStream**: Also present — Turbo's own name for the element. Identical to `streamElement`.
+
+Target resolution matches Turbo's own: `target` is a single id, `targets` is a CSS selector. Both are resolved against the document.
 
 You can destructure only what you need:
 ```js
-closeModal({ render }) { ... }
+closeModal({ target }) { ... }
 ```
+
+There is no `event` argument. Whether the default Turbo rendering is prevented is decided by the action config (`preventDefault`), before the handler runs — not from inside it.
 
 ## Installation
 
@@ -310,14 +319,14 @@ export default class TabsController extends Controller {
 
 ## Handling Regular Turbo Stream Actions
 
-You can also register controller methods for base Turbo Stream actions (like `insert`, `update`, etc.) using `static streamActions`. If a controller method is registered for a base action, it will be called instead of Turbo's default behavior (unless you set `preventDefault: false`).
+You can also register controller methods for base Turbo Stream actions (like `append`, `update`, etc.) using `static streamActions`. If a controller method is registered for a base action, it is called instead of Turbo's default behavior (unless you set `preventDefault: false`). The handler receives the resolved `target` element, just as Turbo would use it.
 
 **Example:**
 
 ```js
 export default class ListController extends Controller {
   static streamActions = {
-    insert: 'handleInsert',
+    append: 'handleAppend',
     update: 'handleUpdate'
   };
 
@@ -325,19 +334,17 @@ export default class ListController extends Controller {
     useStreamActions(this);
   }
 
-  handleInsert({ render }) {
-    // Use render.querySelector('template') to get the template content
-    const template = render.querySelector('template');
-    if (template) {
-      this.element.appendChild(template.content.cloneNode(true));
+  handleAppend({ target, streamElement }) {
+    const template = streamElement.querySelector('template');
+    if (target && template) {
+      target.append(template.content.cloneNode(true));
     }
   }
 
-  handleUpdate({ render }) {
-    const template = render.querySelector('template');
-    if (template) {
-      this.element.innerHTML = '';
-      this.element.appendChild(template.content.cloneNode(true));
+  handleUpdate({ target, streamElement }) {
+    const template = streamElement.querySelector('template');
+    if (target && template) {
+      target.replaceChildren(template.content.cloneNode(true));
     }
   }
 }
@@ -379,17 +386,17 @@ type StreamActionMap = Record<string, StreamActionConfig>;
 ### Handler Method Signature
 
 ```javascript
-handler({ target, event, render }) {
-  // target: The Turbo Stream target element (if any)
-  // event: The original CustomEvent (turbo:before-stream-render)
-  // render: The <turbo-stream> element
+handler({ target, targets, streamElement, render, action }) {
+  // target:        First resolved target element (or null)
+  // targets:       All resolved target elements (array)
+  // streamElement: The <turbo-stream> element (render is an alias)
+  // action:        The matched action name
   // Example:
-  const value = render.getAttribute('custom-attribute');
-  const content = render.innerHTML;
-  // Use controller context
-  this.element.querySelector('...');
-  this.targets;
-  this.values;
+  const id = streamElement.getAttribute('item-id');
+  const template = streamElement.querySelector('template');
+  if (target && template) {
+    target.append(template.content.cloneNode(true));
+  }
 }
 ```
 

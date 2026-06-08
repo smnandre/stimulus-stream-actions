@@ -24,9 +24,4 @@ export default defineConfig({
     outputDir: 'dist',
     exclude: ['tests/**/*', 'tests/e2e/**/*'],
   })],
-  test: {
-    environment: 'happy-dom',
-    include: ['tests/**/*.test.ts'],
-    exclude: ['tests/e2e/**'],
-  }
 });

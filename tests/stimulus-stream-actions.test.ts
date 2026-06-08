@@ -465,6 +465,97 @@ describe('Stimulus Stream Actions', () => {
     });
   });
 
+  describe('Target resolution', () => {
+    it('resolves the target element from the target attribute', () => {
+      MockController.streamActions = { 'test_action': 'onTestAction' };
+      useStreamActions(controller);
+      controller.connect();
+
+      const targetEl = document.createElement('div');
+      targetEl.id = 'my-target';
+      document.body.appendChild(targetEl);
+
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
+      streamElement.setAttribute('target', 'my-target');
+
+      const event = new CustomEvent('turbo:before-stream-render', {
+        detail: { newStream: streamElement },
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+
+      const arg = controller.onTestAction.mock.calls[0][0];
+      expect(arg.target).toBe(targetEl);
+      expect(arg.targets).toEqual([targetEl]);
+    });
+
+    it('resolves multiple elements from the targets attribute', () => {
+      MockController.streamActions = { 'test_action': 'onTestAction' };
+      useStreamActions(controller);
+      controller.connect();
+
+      const a = document.createElement('div');
+      a.className = 'box';
+      const b = document.createElement('div');
+      b.className = 'box';
+      document.body.append(a, b);
+
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
+      streamElement.setAttribute('targets', '.box');
+
+      const event = new CustomEvent('turbo:before-stream-render', {
+        detail: { newStream: streamElement },
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+
+      const arg = controller.onTestAction.mock.calls[0][0];
+      expect(arg.targets).toEqual([a, b]);
+      expect(arg.target).toBe(a);
+    });
+
+    it('passes null target and empty targets when no target attribute is set', () => {
+      MockController.streamActions = { 'test_action': 'onTestAction' };
+      useStreamActions(controller);
+      controller.connect();
+
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
+
+      const event = new CustomEvent('turbo:before-stream-render', {
+        detail: { newStream: streamElement },
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+
+      const arg = controller.onTestAction.mock.calls[0][0];
+      expect(arg.target).toBeNull();
+      expect(arg.targets).toEqual([]);
+    });
+
+    it('passes null target when the target id matches no element', () => {
+      MockController.streamActions = { 'test_action': 'onTestAction' };
+      useStreamActions(controller);
+      controller.connect();
+
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'test_action');
+      streamElement.setAttribute('target', 'does-not-exist');
+
+      const event = new CustomEvent('turbo:before-stream-render', {
+        detail: { newStream: streamElement },
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+
+      const arg = controller.onTestAction.mock.calls[0][0];
+      expect(arg.target).toBeNull();
+      expect(arg.targets).toEqual([]);
+    });
+  });
+
   describe('Coverage', () => {
     beforeEach(() => {
       vi.stubEnv('NODE_ENV', 'production');
@@ -487,6 +578,30 @@ describe('Stimulus Stream Actions', () => {
       };
       useCustomStreamActions(controller, invalidActions);
       expect(consoleWarnSpy).not.toHaveBeenCalled();
+    });
+
+    it('logs handler errors even in production', () => {
+      const errorMethod = vi.fn().mockImplementation(() => {
+        throw new Error('boom');
+      });
+      MockController.streamActions = { 'error_action': 'errorMethod' };
+      (controller as any).errorMethod = errorMethod;
+      useStreamActions(controller);
+      controller.connect();
+
+      const streamElement = document.createElement('div');
+      streamElement.setAttribute('action', 'error_action');
+      const event = new CustomEvent('turbo:before-stream-render', {
+        detail: { newStream: streamElement },
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+
+      expect(errorMethod).toHaveBeenCalledTimes(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error in stream action \"error_action\" (errorMethod):',
+        expect.any(Error)
+      );
     });
   });
 

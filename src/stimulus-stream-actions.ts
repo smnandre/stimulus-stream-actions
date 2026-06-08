@@ -32,6 +32,30 @@ type StreamActionConfig = string | {
 type StreamActionMap = Record<string, StreamActionConfig>;
 
 /**
+ * Resolves the target element(s) of a `<turbo-stream>` from its `target`
+ * (single id) or `targets` (CSS selector) attribute, matching Turbo's own
+ * resolution. Returns an empty array when neither attribute is set or nothing
+ * matches.
+ *
+ * @param streamElement - The `<turbo-stream>` element
+ * @returns The resolved target elements
+ */
+function resolveStreamTargets(streamElement: HTMLElement): Element[] {
+  const targetId = streamElement.getAttribute('target');
+  if (targetId) {
+    const element = document.getElementById(targetId);
+    return element ? [element] : [];
+  }
+
+  const selector = streamElement.getAttribute('targets');
+  if (selector) {
+    return Array.from(document.querySelectorAll(selector));
+  }
+
+  return [];
+}
+
+/**
  * Singleton registry that manages all controllers with stream actions.
  * Handles the global turbo:before-stream-render event and routes actions
  * to the appropriate controller methods.
@@ -119,13 +143,15 @@ export class StreamActionRegistry {
 
         if (typeof method === 'function') {
           try {
+            const targets = resolveStreamTargets(streamElement);
+            const target = targets[0] ?? null;
             // Pass streamElement as `render` for backward-compatibility.
             // Also pass as `streamElement` for clarity.
-            method.call(controller, { ...customEvent.detail, action, render: streamElement, streamElement });
+            method.call(controller, { ...customEvent.detail, action, target, targets, render: streamElement, streamElement });
           } catch (error) {
-            if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-              console.error(`Error in stream action \"${action}\" (${methodName}):`, error);
-            }
+            // Always surface handler errors: silently swallowing them in
+            // production hides real bugs.
+            console.error(`Error in stream action \"${action}\" (${methodName}):`, error);
           }
         } else {
           if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
@@ -238,13 +264,13 @@ function wireStreamActions(controller: Controller, customActions?: StreamActionM
  *     useStreamActions(this);
  *   }
  * 
- *   closeModal(streamData) {
- *     const modalId = streamData.get('modal-id');
- *     // Handle close modal action with easy attribute access
+ *   closeModal({ streamElement }) {
+ *     const modalId = streamElement.getAttribute('modal-id');
+ *     // Handle close modal action
  *   }
- * 
- *   openModal(streamData) {
- *     const size = streamData.get('size', 'medium'); // with fallback
+ *
+ *   openModal({ streamElement }) {
+ *     const size = streamElement.getAttribute('size') ?? 'medium'; // with fallback
  *     // Handle open modal action
  *   }
  * }
@@ -298,13 +324,13 @@ export function useStreamActions(controller: Controller) {
  *     useCustomStreamActions(this, actions);
  *   }
  * 
- *   animatedRemove(streamData) {
- *     const duration = streamData.getNumber('duration', 300);
- *     // Handle animated removal with typed attribute access
+ *   animatedRemove({ streamElement }) {
+ *     const duration = Number(streamElement.getAttribute('duration')) || 300;
+ *     // Handle animated removal
  *   }
- * 
- *   instantRemove(streamData) {
- *     const confirmed = streamData.getBoolean('confirmed');
+ *
+ *   instantRemove({ streamElement }) {
+ *     const confirmed = streamElement.getAttribute('confirmed') === 'true';
  *     // Handle instant removal
  *   }
  * }
